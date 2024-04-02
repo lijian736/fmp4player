@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="description" content="a simple javascript mp4 player demo">
+    <meta name="keywords" content="h264 player, mp4 player, mse, mp4 muxing, aac player">
+    <title>HTML5VideoPlayDemo</title>
+</head>
+
+<body>
+    <div id="container" style="margin: 0 auto; text-align: center;">
+        <h2>HTML5 Video Play Demo</h2>
+        <video style="border: 1px solid #333; max-width: 600px;" controls autoplay poster="images/loader-thumb.jpg" id="player">
+            your browser do not support video tag
+        </video>
+    </div>
+
+    <script>
+        //parse the data from websocket server
+        function parse(data) {
+            var input = new Uint8Array(data),
+                dv = new DataView(input.buffer),
+                aacDuration,
+                h264Duration,
+                audioLength,
+                audio,
+                video;
+
+            //the format: 
+            //:  4 bytes     |   4 bytes      |    4 bytes        |  variable length  |  variable length
+            //: AAC duration | H.264 Duration | Audio data length |  Audio Data(AAC)  |  Video Data(H.264)
+            if(input.byteLength <= 6)
+            {
+                return;
+            }
+
+            //AAC duration's byte order is little-endian
+            //AAC duration's unit is milliseconds
+            aacDuration = dv.getUint32(0, true);
+            //H.264 duration's byte order is little-endian
+            //H.264 duration's unit is milliseconds
+            h264Duration = dv.getUint32(4, true);
+            //audioLength's byte order is little-endian
+            audioLength = dv.getUint32(8, true);
+            //the AAC data
+            audio = input.subarray(12, (audioLength + 12));
+            //the H.264 data
+            video = input.subarray(audioLength + 12);
+
+            return {
+                audio: audio,  //Uint8Array
+                video: video,  //Uint8Array
+                duration_aac: aacDuration,   //milliseconds
+                duration_h264: h264Duration  //milliseconds
+            };
+        }
+
+        //when window loaded
+        window.onload = function() {
+            
+            var support = FMP4Player.isEnvironmentOK();
+            console.log('The browser supports MSE and WebSocket:', support);
+            if(!support){
+                console.log('your browser is too old, byebye');
+                return;
+            }
+            
+            //websocket server address
+            var socketURL = 'ws://localhost:12000';
+
+            //the player
+            var mp4Player = new FMP4Player({
+                node: 'player',     //the video element id
+                mode: 'both',
+                debug: true,          //runs in debug mode
+                flushingBufferTime: 0,      //flushing buffer time, every flushingTime to check the buffer
+                autoClearSourceBuffer: true,   // the source buffer is automatically cleared
+                videoTagMaxDelay: 10 * 1000,   //the <video/> tag max delays in milliseconds
+                fps: 30,   //the fps, it is optional, if it is null, the fps will calculated by the duration of the packet
+                //the media source is ready
+                onReady: function(data) {
+                    console.log('MediaSource is ready', data);
+                },
+
+                onError: function(data) {
+                    console.error('Buffer error encountered', data);
+                }
+            });
+
+            //create the websocket connection, the subprotocol is ctrl_protocol
+            var ws = new WebSocket(socketURL, "ctrl_protocol");
+            ws.binaryType = 'arraybuffer';
+
+            //the message event handler
+            ws.onmessage = function(event) {
+                //the event.data is ArrayBuffer
+                var data = parse(event.data);
+                mp4Player.feed(data);
+            };
+
+            //the error event handler
+            ws.onerror = function(event) {
+                console.log('Socket Error');
+
+                var state = ws.readyState;
+                if(state === WebSocket.CONNECTING){
+                    console.log("WebSocket creating");
+                }else if(state == WebSocket.OPEN){
+                    console.log("WebSocket connected");
+                }else if(state == WebSocket.CLOSING){
+                    console.log("WebSocket closing");
+                }else if(state == WebSocket.CLOSED){
+                    console.log("WebSocket connection closed");
+                }
+            };
+
+            //the open event handler
+            ws.onopen = function(event){
+                console.log('Socket open');
+
+                var state = ws.readyState;
+                if(state === WebSocket.CONNECTING){
+                    console.log("WebSocket connecting");
+                }else if(state == WebSocket.OPEN){
+                    console.log("WebSocket connected");
+                }else if(state == WebSocket.CLOSING){
+                    console.log("WebSocket closing");
+                }else if(state == WebSocket.CLOSED){
+                    console.log("WebSocket closed");
+                }
+            };
+
+            //the close event handler
+            ws.onclose = function(event){
+                console.log('Socket close');
+
+                var state = ws.readyState;
+                if(state === WebSocket.CONNECTING){
+                    console.log("WebSocket connecting");
+                }else if(state == WebSocket.OPEN){
+                    console.log("WebSocket connected");
+                }else if(state == WebSocket.CLOSING){
+                    console.log("WebSocket closing");
+                }else if(state == WebSocket.CLOSED){
+                    console.log("WebSocket closed");
+                }
+            };
+        }
+    </script>
+    <script type="text/javascript" src="fmp4player.js"></script>
+</body>
+</html>
